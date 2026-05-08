@@ -28,3 +28,36 @@ def compute_swing(pns: pd.Series, ge2024_national: pd.Series) -> pd.Series:
     """
     pns_majors = pns.reindex(SWING_PARTIES).fillna(0.0)
     return pns_majors - ge2024_national
+
+
+def apply_uns(ge2024: pd.DataFrame, swing: pd.Series) -> pd.DataFrame:
+    """Apply Uniform National Swing to per-constituency 2024 shares.
+
+    For the five majors: projected_share = max(0, ge2024_share + swing[party]).
+    For all other parties: projected_share = ge2024_share (held flat).
+    Then renormalise within each constituency so projected_shares sum to 1.0.
+
+    Input ge2024: long-form DataFrame with (constituency_id, constituency_name,
+                  country, party, votes, share).
+    Input swing:  Series indexed by SWING_PARTIES (fractional pp shifts).
+
+    Returns: a copy of `ge2024` with an added `projected_share` column.
+    """
+    out = ge2024.copy()
+
+    # Apply swings to the majors; clamp to 0 below.
+    swing_lookup = swing.to_dict()
+    is_major = out["party"].isin(SWING_PARTIES)
+    out["projected_share"] = out["share"]  # default: flat
+    out.loc[is_major, "projected_share"] = (
+        out.loc[is_major, "share"]
+        + out.loc[is_major, "party"].map(swing_lookup)
+    ).clip(lower=0.0)
+
+    # Renormalise within each constituency.
+    constituency_total = out.groupby("constituency_id")["projected_share"].transform("sum")
+    out["projected_share"] = out["projected_share"] / constituency_total.where(
+        constituency_total > 0, 1.0
+    )
+
+    return out
