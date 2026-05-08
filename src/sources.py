@@ -42,14 +42,72 @@ COUNCIL_SHEET_CSV_URL = (
 )
 
 
+# The per-ward vote columns in the source CSV are a merged range starting at
+# column index 9 (one per party, 21 parties total).  The header row only
+# populates the *first* cell of that range with a long merged-cell string; the
+# remaining 20 cells are blank, so pandas names them "Unnamed: 10" …
+# "Unnamed: 29".  The party names themselves appear at columns 34-54 as a
+# sidebar key, with no per-row data beneath them.  We rename after loading so
+# that downstream code can reference party columns by their canonical names.
+_COUNCIL_PARTY_COLUMNS: tuple[str, ...] = (
+    "RFM",
+    "CON",
+    "LAB",
+    "GRN",
+    "LDM",
+    "Ind / NoDsc / Ind Nwrk",
+    "Localist",
+    "TUSC",
+    "Workers Party",
+    "SDP",
+    "Aspire",
+    "Christian Peoples Alliance",
+    "Heritage",
+    "Your Party",
+    "Advance UK",
+    "Rejoin EU",
+    "MRLP",
+    "Communist Party of Britain",
+    "UKIP",
+    "GYF (Restore)",
+    "Other",
+)
+
+# The merged-header cell at column index 9 gets this pandas column name.
+_MERGED_HEADER_COL = (
+    "Top Candidate's Number of Votes from Each Party"
+    " (Treat INDs/Local Groups as Same Party in Multi-Member Wards)"
+)
+
+
 def load_council_results(refresh: bool = False) -> pd.DataFrame:
     """Load the 2026 council ward-level results from the Google Sheet.
 
     Caches the raw CSV to data/cache/council_results.csv. Pass refresh=True
     to bypass the cache.
+
+    Returns a DataFrame with one row per ward.  Per-party vote columns are
+    named using the canonical party names in ``_COUNCIL_PARTY_COLUMNS``
+    (e.g. ``RFM``, ``CON``, ``LAB`` …).
     """
     path = _fetch_to_cache(COUNCIL_SHEET_CSV_URL, CACHE_DIR / "council_results.csv", refresh)
-    return pd.read_csv(path, header=0, skiprows=[1, 2])
+    df = pd.read_csv(path, header=0, skiprows=[1, 2])
+
+    # Build the rename map: first party → merged-header col; rest → Unnamed: N.
+    rename: dict[str, str] = {_MERGED_HEADER_COL: _COUNCIL_PARTY_COLUMNS[0]}
+    for i, party in enumerate(_COUNCIL_PARTY_COLUMNS[1:], start=10):
+        rename[f"Unnamed: {i}"] = party
+
+    df = df.rename(columns=rename)
+
+    # Drop the sidebar-key columns that live at original positions 34–54.
+    # After the rename above those columns now share names with the real vote
+    # columns (positions 9–29), so we drop them by integer position.
+    # Positions 34–54 = iloc indices 34–54 in the current frame.
+    sidebar_positions = list(range(34, 55))
+    df = df.iloc[:, [i for i in range(len(df.columns)) if i not in sidebar_positions]]
+
+    return df
 
 
 # HoC Library column names → canonical party codes used elsewhere in this project.
