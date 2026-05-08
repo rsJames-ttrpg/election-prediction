@@ -1,4 +1,10 @@
-"""Cached fetchers for the two upstream data sources."""
+"""Data loaders for the two upstream sources.
+
+The council-results sheet is fetched live (cached locally). The 2024 GE
+results CSV is bundled in the repo as immutable historical data — see
+data/2024-ge/ — because the upstream Parliament server is behind
+Cloudflare TLS-fingerprint detection that httpx cannot bypass.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,6 +13,7 @@ import httpx
 import pandas as pd
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
+DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 # The Parliament file server is behind Cloudflare and rejects default httpx
 # user agents with a JS challenge. Use a browser-like UA for all fetches.
@@ -45,11 +52,6 @@ def load_council_results(refresh: bool = False) -> pd.DataFrame:
     return pd.read_csv(path, header=0, skiprows=[1, 2])
 
 
-GE2024_CSV_URL = (
-    "https://researchbriefings.files.parliament.uk/documents/"
-    "CBP-10009/HoC-GE2024-results-by-constituency.csv"
-)
-
 # HoC Library column names → canonical party codes used elsewhere in this project.
 _GE2024_PARTY_COLS: dict[str, str] = {
     "Con": "CON",
@@ -68,8 +70,8 @@ _GE2024_PARTY_COLS: dict[str, str] = {
 }
 
 
-def load_ge2024_constituency(refresh: bool = False) -> pd.DataFrame:
-    """Load the 2024 GE per-constituency results from the HoC Library CSV.
+def load_ge2024_constituency() -> pd.DataFrame:
+    """Load the 2024 GE per-constituency results from the bundled CSV.
 
     Returns a long-form DataFrame with columns:
       constituency_id, constituency_name, country, party, votes, share
@@ -78,9 +80,14 @@ def load_ge2024_constituency(refresh: bool = False) -> pd.DataFrame:
     `party` codes: CON, LAB, LDM, GRN, RFM, SNP, PC, DUP, SF, SDLP, UUP, APNI, OTH.
     Shares are computed against the per-constituency sum of these party columns
     (which equals `Valid votes` in the source file).
+
+    The CSV is bundled at data/2024-ge/HoC-GE2024-results-by-constituency.csv
+    (originally fetched from
+    https://researchbriefings.files.parliament.uk/documents/CBP-10009/HoC-GE2024-results-by-constituency.csv).
+    It's not refetched at runtime because the Parliament server's Cloudflare
+    rules block httpx, and 2024 GE results are immutable.
     """
-    path = _fetch_to_cache(GE2024_CSV_URL, CACHE_DIR / "ge2024_constituency.csv", refresh)
-    raw = pd.read_csv(path)
+    raw = pd.read_csv(DATA_DIR / "2024-ge" / "HoC-GE2024-results-by-constituency.csv")
 
     metadata = raw[["ONS ID", "Constituency name", "Country name"]].rename(columns={
         "ONS ID": "constituency_id",
